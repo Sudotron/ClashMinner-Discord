@@ -140,8 +140,10 @@ async def main():
             clan=SimpleNamespace(tag="#CTAG"))))
     assert await A.get_player("ptag", official) == PLAYER
     official.get_player.assert_awaited_once_with("#PTAG")
-    assert await A.get_clan("ctag", official) == CLAN
-    war_data = await A.get_clan_war("ctag", official)
+    assert await A.get_clan("ctag", official, lookup_cache=False) == CLAN
+    official.get_clan.assert_awaited_once_with("#CTAG", lookup_cache=False)
+    war_data = await A.get_clan_war("ctag", official, lookup_cache=False)
+    official.get_clan_war.assert_awaited_once_with("#CTAG", lookup_cache=False)
     assert war_data["clan"]["tag"] == "#CTAG" and war_data["opponent"]["tag"] == "#OTAG"
     ok("official player/clan/war lookups normalize tags and preserve API payloads")
 
@@ -274,6 +276,8 @@ async def main():
     await tr._scan(cfg); assert cfg["state"]["members"] and not sent_msgs      # first run: silent snapshot
     clan_obj.members = [mk("#A", "Alice", "Elder"), mk("#C", "Carol", "Member")]  # B left, C joined, A promoted
     await tr._scan(cfg)
+    bot.coc.get_clan.assert_any_await("#CTAG", lookup_cache=False)
+    T.get_clan_war.assert_any_await("#CTAG", bot.coc, lookup_cache=False)
     joined = "\n".join(sent_msgs)
     assert "has left" in joined and "has joined" in joined and "promoted" in joined, joined
     sent_msgs.clear()

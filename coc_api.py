@@ -72,11 +72,13 @@ async def get_player_warhits(tag: str):
     return await fetch_stats_data(f"/player/{format_tag(tag)}/warhits")
 
 
-async def get_clan(tag: str, coc_client=None) -> dict:
+async def get_clan(tag: str, coc_client=None, *, lookup_cache: bool = True) -> dict:
     if coc_client is None:
         return _api_unavailable()
     try:
-        return _official_payload(await coc_client.get_clan(_official_tag(tag)))
+        return _official_payload(
+            await coc_client.get_clan(_official_tag(tag), lookup_cache=lookup_cache)
+        )
     except coc.NotFound:
         return {"error": "Clan not found. Check the tag and try again."}
     except coc.Maintenance:
@@ -96,11 +98,11 @@ async def get_clan_members(tag: str, coc_client=None):
     return {"items": clan.get("memberList", [])}
 
 
-async def get_clan_war(tag: str, coc_client=None) -> dict:
+async def get_clan_war(tag: str, coc_client=None, *, lookup_cache: bool = True) -> dict:
     if coc_client is None:
         return _api_unavailable()
     try:
-        war = await coc_client.get_clan_war(_official_tag(tag))
+        war = await coc_client.get_clan_war(_official_tag(tag), lookup_cache=lookup_cache)
     except coc.NotFound:
         return {"error": "Clan not found. Check the tag and try again."}
     except coc.PrivateWarLog:

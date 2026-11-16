@@ -71,12 +71,12 @@ class Tracking(commands.Cog):
         await interaction.response.defer(thinking=True)
         tag = normalize_tag(tag)
         try:
-            clan = await self.bot.coc.get_clan(tag)
+            clan = await self.bot.coc.get_clan(tag, lookup_cache=False)
         except Exception as e:
             await interaction.followup.send(f"❌ Error finding clan: {e}")
             return
 
-        war = await get_clan_war(tag, self.bot.coc)
+        war = await get_clan_war(tag, self.bot.coc, lookup_cache=False)
         opponent = war.get("opponent", {}).get("tag", "") if "error" not in war and war.get("state") == "preparation" else ""
         cfg = await get_guild_config(interaction.guild_id)
         cfg.update(tracked_tag=tag, channel_id=channel.id, initiated_by=interaction.user.display_name,
@@ -185,13 +185,13 @@ class Tracking(commands.Cog):
 
     async def _scan(self, cfg: dict):
         tag, st, ch = cfg["tracked_tag"], cfg["state"], cfg["channel_id"]
-        clan = await self.bot.coc.get_clan(tag)
+        clan = await self.bot.coc.get_clan(tag, lookup_cache=False)
         current = {m.tag: m for m in clan.members}
         notify = lambda text: self.bot.notify(ch, text)
 
         if not st.get("members"):  # first run for this clan: just remember the roster
             st["members"] = _snapshot(current.values())
-            war = await get_clan_war(tag, self.bot.coc)
+            war = await get_clan_war(tag, self.bot.coc, lookup_cache=False)
             st["last_war_opponent"] = war.get("opponent", {}).get("tag", "") if "error" not in war and war.get("state") == "preparation" else ""
             await save_guild_config(cfg)
             return
@@ -217,7 +217,7 @@ class Tracking(commands.Cog):
                     icon = "🎖️" if verb == "promoted" else "📉"
                     await notify(f"{icon} {_plink(current[t].name, t)} has been *{verb}* to {new}{'!' if verb == 'promoted' else '.'}")
 
-        war = await get_clan_war(tag, self.bot.coc)
+        war = await get_clan_war(tag, self.bot.coc, lookup_cache=False)
         if "error" not in war:
             changed |= await self._scan_war(cfg, st, clan, war, notify)
 
