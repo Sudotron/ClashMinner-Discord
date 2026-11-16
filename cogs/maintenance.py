@@ -3,14 +3,12 @@ import logging
 
 import coc
 import discord
-import httpx
 from discord.ext import commands, tasks
 
 from core import state
 from database import all_guild_configs
 
 log = logging.getLogger(__name__)
-PROBE_URL = "https://api.clashk.ing/v1/locations?limit=1"
 
 MAINTENANCE_MSG = (
     "🛑 **Clash of Clans is Under Maintenance!**\n\n"
@@ -25,15 +23,6 @@ BACK_ONLINE_MSG = (
     "👑 Go crush your enemies, Chief! 💪")
 
 
-async def _proxy_is_up() -> bool:
-    try:
-        async with httpx.AsyncClient(timeout=8) as client:
-            r = await client.get(PROBE_URL, headers={"Accept": "application/json"})
-            return r.status_code != 503
-    except Exception:
-        return True  # network trouble is not the same as game maintenance
-
-
 class Maintenance(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -45,17 +34,16 @@ class Maintenance(commands.Cog):
     @tasks.loop(minutes=2)
     async def check(self):
         was = state.maintenance
+        if not self.bot.coc:
+            return
         now = False
-        if self.bot.coc:
-            try:
-                await self.bot.coc.get_location(32000000)  # Europe: cheap official-API probe
-            except coc.Maintenance:
-                now = True
-            except Exception as e:
-                log.debug("coc probe failed (%s); falling back to proxy", e)
-                now = not await _proxy_is_up()
-        else:
-            now = not await _proxy_is_up()
+        try:
+            await self.bot.coc.get_location(32000000)  # Europe: cheap official-API probe
+        except coc.Maintenance:
+            now = True
+        except Exception as e:
+            log.warning("Official CoC API maintenance probe failed: %s", e)
+            return
         state.maintenance = now
 
         if now != was:

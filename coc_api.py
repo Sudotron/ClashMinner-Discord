@@ -1,12 +1,11 @@
 import httpx
-import os
 import urllib.parse
+import coc
 from dotenv import load_dotenv
 
 load_dotenv()
 
-BASE_URL = "https://api.clashk.ing/v1"   # Official CoC proxy endpoints
-STATS_URL = "https://api.clashk.ing"      # ClashK.ing custom stats endpoints
+CLASHKING_URL = "https://api.clashk.ing"
 
 
 async def _fetch(base: str, endpoint: str) -> dict:
@@ -29,12 +28,8 @@ async def _fetch(base: str, endpoint: str) -> dict:
             return {"error": str(e)}
 
 
-async def fetch_coc_data(endpoint: str) -> dict:
-    return await _fetch(BASE_URL, endpoint)
-
-
 async def fetch_stats_data(endpoint: str) -> dict:
-    return await _fetch(STATS_URL, endpoint)
+    return await _fetch(CLASHKING_URL, endpoint)
 
 
 def format_tag(tag: str) -> str:
@@ -44,46 +39,82 @@ def format_tag(tag: str) -> str:
     return "%23" + tag
 
 
-async def get_player(tag: str):
-    return await fetch_coc_data(f"/players/{format_tag(tag)}")
+def _official_payload(model) -> dict:
+    payload = getattr(model, "_raw_data", None)
+    if not isinstance(payload, dict):
+        raise RuntimeError("Official CoC API response did not include raw player/clan data.")
+    return payload
 
-async def get_player_stats(tag: str):
-    return await fetch_stats_data(f"/player/{format_tag(tag)}/stats")
+
+def _api_unavailable() -> dict:
+    return {"error": "Official Clash of Clans API is not connected. Configure COC_EMAIL and COC_PASSWORD."}
+
+
+def _official_tag(tag: str) -> str:
+    tag = tag.strip().upper()
+    return tag if tag.startswith("#") else f"#{tag}"
+
+
+async def get_player(tag: str, coc_client=None) -> dict:
+    if coc_client is None:
+        return _api_unavailable()
+    try:
+        return _official_payload(await coc_client.get_player(_official_tag(tag)))
+    except coc.NotFound:
+        return {"error": "Player not found. Check the tag and try again."}
+    except coc.Maintenance:
+        return {"error": "Clash of Clans is under maintenance. Try again later."}
+    except coc.HTTPException as e:
+        return {"error": str(e)}
+
 
 async def get_player_warhits(tag: str):
     return await fetch_stats_data(f"/player/{format_tag(tag)}/warhits")
 
-async def get_clan(tag: str):
-    return await fetch_coc_data(f"/clans/{format_tag(tag)}")
+
+async def get_clan(tag: str, coc_client=None) -> dict:
+    if coc_client is None:
+        return _api_unavailable()
+    try:
+        return _official_payload(await coc_client.get_clan(_official_tag(tag)))
+    except coc.NotFound:
+        return {"error": "Clan not found. Check the tag and try again."}
+    except coc.Maintenance:
+        return {"error": "Clash of Clans is under maintenance. Try again later."}
+    except coc.HTTPException as e:
+        return {"error": str(e)}
+
 
 async def get_player_join_leave(tag: str, limit: int = 15):
     # Fetch 250 from API because the API limit returns oldest first; we fetch many and slice locally
     return await fetch_stats_data(f"/player/{format_tag(tag)}/join-leave?timestamp_start=0&time_stamp_end=9999999999&limit=250")
 
-async def get_clan_members(tag: str):
-    return await fetch_coc_data(f"/clans/{format_tag(tag)}/members")
+async def get_clan_members(tag: str, coc_client=None):
+    clan = await get_clan(tag, coc_client)
+    if "error" in clan:
+        return clan
+    return {"items": clan.get("memberList", [])}
 
-async def get_clan_war(tag: str):
-    return await fetch_coc_data(f"/clans/{format_tag(tag)}/currentwar")
+
+async def get_clan_war(tag: str, coc_client=None) -> dict:
+    if coc_client is None:
+        return _api_unavailable()
+    try:
+        war = await coc_client.get_clan_war(_official_tag(tag))
+    except coc.NotFound:
+        return {"error": "Clan not found. Check the tag and try again."}
+    except coc.PrivateWarLog:
+        return {"error": "This clan's war log is private."}
+    except coc.Maintenance:
+        return {"error": "Clash of Clans is under maintenance. Try again later."}
+    except coc.HTTPException as e:
+        return {"error": str(e)}
+    if war is None:
+        return {"state": "notInWar", "clan": {"tag": _official_tag(tag)}}
+    payload = dict(_official_payload(war))
+    if war.clan and payload.get("clan", {}).get("tag") != war.clan.tag:
+        payload["clan"], payload["opponent"] = payload.get("opponent", {}), payload.get("clan", {})
+    return payload
 
 async def get_previous_wars(tag: str, limit: int = 2):
     return await fetch_stats_data(f"/war/{format_tag(tag)}/previous?limit={limit}")
-
-async def get_cwl_group(tag: str):
-    """Fetch CWL league group info (rounds + war tags) for a clan."""
-    return await fetch_coc_data(f"/clans/{format_tag(tag)}/currentwar/leaguegroup")
-
-async def get_cwl_war(war_tag: str):
-    """Fetch individual CWL round war data by war tag."""
-    return await fetch_coc_data(f"/clanwarleagues/wars/{format_tag(war_tag)}")
-
-async def get_clan_capital_raid_seasons(tag: str, limit: int = 1) -> dict:
-    """Fetch capital raid season data for a clan (includes per-member looted gold)."""
-    return await fetch_coc_data(f"/clans/{format_tag(tag)}/capitalraidseasons?limit={limit}")
-
-
-async def search_clans(min_clan_level: int = 10, min_clan_points: int = 35000, limit: int = 50) -> dict:
-    """Search clans with high level/points — used for /raidclans capital hall filtering."""
-    return await fetch_coc_data(
-        f"/clans?minClanLevel={min_clan_level}&minClanPoints={min_clan_points}&limit={limit}"
-    )

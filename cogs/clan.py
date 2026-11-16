@@ -39,12 +39,16 @@ class ClanCog(commands.Cog):
         cached = self.cache.get(f"c:{tag}")
         if cached:
             return cached
-        data = await get_clan(tag)
+        data = await get_clan(tag, self.bot.coc)
         if "error" in data:  # maybe a player tag: use that player's clan
-            pdata = await get_player(tag)
+            pdata = await get_player(tag, self.bot.coc)
+            if "error" in pdata and not pdata["error"].startswith("Player not found"):
+                raise ApiError(pdata["error"])
             if "error" not in pdata and pdata.get("clan"):
-                data = await get_clan(pdata["clan"]["tag"])
+                data = await get_clan(pdata["clan"]["tag"], self.bot.coc)
         if "error" in data:
+            if not data["error"].startswith("Clan not found"):
+                raise ApiError(data["error"])
             raise ApiError("Could not find clan details. Is it a valid clan tag?")
         self.cache.set(f"c:{tag}", data)
         self.cache.set(f"c:{data.get('tag', tag).strip().upper()}", data)
@@ -152,14 +156,14 @@ class ClanCog(commands.Cog):
         return "\n🤝 **Result: DRAW**"
 
     async def _clanwar_page(self, tag: str) -> Page:
-        war_data = await get_clan_war(tag)
+        war_data = await get_clan_war(tag, self.bot.coc)
         if "error" in war_data:
-            clan_data = await get_clan(tag)
+            clan_data = await get_clan(tag, self.bot.coc)
             if "error" in clan_data:
-                pdata = await get_player(tag)
+                pdata = await get_player(tag, self.bot.coc)
                 if "error" not in pdata and pdata.get("clan"):
-                    clan_data = await get_clan(pdata["clan"]["tag"])
-                    war_data = await get_clan_war(pdata["clan"]["tag"])
+                    clan_data = await get_clan(pdata["clan"]["tag"], self.bot.coc)
+                    war_data = await get_clan_war(pdata["clan"]["tag"], self.bot.coc)
             if "error" not in clan_data and not clan_data.get("isWarLogPublic", False):
                 ctag = clan_data.get("tag", tag)
                 text = (f"🛡️ **{clan_data.get('name', 'Clan')}** `{ctag}`\n\n"
@@ -217,7 +221,7 @@ class ClanCog(commands.Cog):
         page_no = int(parts[4]) if len(parts) > 4 else 0
 
         if war_index == "live":
-            war_data = await get_clan_war(norm_tag)
+            war_data = await get_clan_war(norm_tag, self.bot.coc)
         else:
             items = (await get_previous_wars(norm_tag, limit=2)).get("items", [])
             idx = int(war_index)

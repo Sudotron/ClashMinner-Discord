@@ -1,6 +1,4 @@
 """General commands: /help, /link, /adminlink, /profile."""
-import os
-from typing import Optional
 
 import discord
 from discord import app_commands
@@ -12,7 +10,6 @@ from core.helpers import normalize_tag
 from core.nav import Btn, Markup, NavError, Page, send_page
 from core.perms import is_owner
 from database import link_account, get_all_linked_tags
-from coc_api import get_player as _get_player
 
 
 class General(commands.Cog):
@@ -49,26 +46,26 @@ class General(commands.Cog):
         if config.OWNER_CONTACT:
             text += f"\n\n👑 **Owner:** {config.OWNER_CONTACT}"
         embed = discord.Embed(title="Welcome to Clash OTTO ⚔️", description=text, color=0xE8A317)
-        if os.path.exists(config.HELP_ANIMATION):
-            await interaction.response.send_message(
-                embed=embed, file=discord.File(config.HELP_ANIMATION, filename="clash_otto.mp4"))
-        else:
-            await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
     # ── /link ────────────────────────────────────────────────────────────────
     async def _link(self, user_id: int, tag: str, who: str = "your account") -> str:
         """Validate `tag` as a player or a clan, store it, return the reply text."""
-        pdata = await get_player(tag)
+        pdata = await get_player(tag, self.bot.coc)
         if "error" not in pdata:
             await link_account(user_id, tag, "player")
             return (f"✅ Player **{pdata.get('name', 'Unknown')}** "
                     f"(TH{pdata.get('townHallLevel', '?')} | Lvl {pdata.get('expLevel', '?')}) linked to {who}!")
-        cdata = await get_clan(tag)
+        if not pdata["error"].startswith("Player not found"):
+            return f"❌ Could not check this tag: {pdata['error']}"
+        cdata = await get_clan(tag, self.bot.coc)
         if "error" not in cdata:
             leader = next((m.get("name") for m in cdata.get("memberList", []) if m.get("role") == "leader"), "Unknown")
             await link_account(user_id, tag, "clan")
             return (f"✅ Clan **{cdata.get('name', 'Unknown')}** "
                     f"(Lvl {cdata.get('clanLevel', '?')} | Leader: {leader}) linked to {who}!")
+        if not cdata["error"].startswith("Clan not found"):
+            return f"❌ Could not check this tag: {cdata['error']}"
         return f"❌ Invalid tag! Could not find any player or clan with `{tag}`."
 
     @app_commands.command(name="link", description="Link your Clash of Clans player or clan tag")
@@ -104,7 +101,7 @@ class General(commands.Cog):
                     return Page("❌ You don't have any linked player accounts. Use `/link`.", markup, thumb_url=user.display_avatar.url)
                 text = "👥 **Your Linked Accounts:**\n\n"
                 for tag in tags:
-                    d = await _get_player(tag)
+                    d = await get_player(tag, self.bot.coc)
                     if "error" in d:
                         text += f"• `{tag}` — ❌ Unable to fetch data\n"
                     else:
@@ -116,7 +113,7 @@ class General(commands.Cog):
                     return Page("❌ You don't have any linked clans. Use `/link`.", markup, thumb_url=user.display_avatar.url)
                 text = "🛡️ **Your Linked Clans:**\n\n"
                 for tag in tags:
-                    d = await get_clan(tag)
+                    d = await get_clan(tag, self.bot.coc)
                     if "error" in d:
                         text += f"• `{tag}` — ❌ Unable to fetch data\n"
                     else:

@@ -17,7 +17,7 @@ Discord slash commands, embeds and buttons. (The Player Tracking bot is a separa
 | `/clansorted [tag] [sort]` | Roster sorted by trophies / TH / donations / role / XP | everyone |
 | `/clanwar [tag]` | Current war or last 2 wars; analytics (missed, 3-stars, attacks) | everyone |
 | `/cwl [tag]` | CWL rounds, roster, missed hits, season leaderboard | everyone |
-| `/cap_stats [tag]` | Capital Gold contribution leaderboard | everyone |
+| `/cap_stats [tag]` | All-time Capital Gold contribution leaderboard | everyone |
 | `/loot` | Loot forecaster; toggle server notifications | everyone (toggle: admin) |
 | `/clantrack tag [channel]` | Start join/leave/promotion/war-feed logs | Manage Server |
 | `/deltrack`, `/trackinfo`, `/setchannel` | Stop / inspect tracking, set notice channel | Manage Server |
@@ -69,15 +69,16 @@ The database (`otto.db`) is created automatically. Users link their accounts fre
 bot.py            entry point, command guard, error handling
 config.py         .env loading
 database.py       SQLite (user_tags, guild_config)
-coc_api.py        ClashK API client (unchanged from the Telegram bot)
+coc_api.py        Official profile/war API adapter and ClashKing history endpoints
 core/             nav.py (embed + button framework), builders.py (text pages), helpers.py, perms.py
 cogs/             one file per feature group
 tests/            offline smoke tests (python tests/test_smoke.py)
 ```
 
-## Needs checking against the live APIs (not testable offline)
+## Data sources
 
-- `coc_api.py` endpoints on `api.clashk.ing` (especially the custom `/player/{tag}/stats`, `/warhits`, `/join-leave`).
-- `coc.py` login with the current game data (used for tracking, `/cwl`, TH max levels).
+- Player/clan profiles, current wars, tracking, `/cwl` and TH max levels use the official Clash of Clans API.
+- Player war hits, player clan history, and previous-war analytics use ClashKing's documented custom endpoints.
+- `/cap_stats` uses all-time contribution/raid achievements from official player profiles; the old ClashKing season-stats endpoint is no longer available.
 - The clash.ninja scraper (`/scrap`) — page layout may have changed.
 - `forecaster_data.json` is a static weekly model from 2023; the loot index is a rough estimate.

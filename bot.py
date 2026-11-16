@@ -67,7 +67,7 @@ class OttoBot(commands.Bot):
             log.warning("COC_EMAIL / COC_PASSWORD not set — tracking, /cwl and TH-max lookups disabled.")
             return
         import coc
-        client = coc.Client(load_game_data=coc.LoadGameData(always=True))
+        client = coc.Client(load_game_data=coc.LoadGameData(always=True), raw_attribute=True)
         try:
             await client.login(config.COC_EMAIL, config.COC_PASSWORD)
             self.coc = client

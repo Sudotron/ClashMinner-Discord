@@ -111,6 +111,7 @@ async def main():
 
     # ── bot + cogs load, commands register ──────────────────────────────────
     import bot as botmod
+    import coc_api as A
     bot = botmod.OttoBot()
     bot.coc = None
     _never = asyncio.Event()
@@ -123,10 +124,30 @@ async def main():
     assert names == expected, f"commands differ: {set(names) ^ set(expected)}"
     ok(f"all {len(names)} slash commands register")
 
+    general = bot.get_cog("General")
+    help_interaction = SimpleNamespace(response=SimpleNamespace(send_message=AsyncMock()))
+    await general.help.callback(general, help_interaction)
+    help_interaction.response.send_message.assert_awaited_once()
+    assert "file" not in help_interaction.response.send_message.await_args.kwargs
+    ok("/help sends no animation file")
+
+    # ── official API adapter ─────────────────────────────────────────────────
+    official = SimpleNamespace(
+        get_player=AsyncMock(return_value=SimpleNamespace(_raw_data=PLAYER)),
+        get_clan=AsyncMock(return_value=SimpleNamespace(_raw_data=CLAN)),
+        get_clan_war=AsyncMock(return_value=SimpleNamespace(
+            _raw_data={"clan": {"tag": "#OTAG"}, "opponent": {"tag": "#CTAG"}},
+            clan=SimpleNamespace(tag="#CTAG"))))
+    assert await A.get_player("ptag", official) == PLAYER
+    official.get_player.assert_awaited_once_with("#PTAG")
+    assert await A.get_clan("ctag", official) == CLAN
+    war_data = await A.get_clan_war("ctag", official)
+    assert war_data["clan"]["tag"] == "#CTAG" and war_data["opponent"]["tag"] == "#OTAG"
+    ok("official player/clan/war lookups normalize tags and preserve API payloads")
+
     # ── player pages ─────────────────────────────────────────────────────────
     import cogs.player as P
     P.get_player = AsyncMock(return_value=PLAYER)
-    P.get_player_stats = AsyncMock(return_value=STATS)
     P.get_player_warhits = AsyncMock(return_value=WARHITS)
     P.get_player_join_leave = AsyncMock(return_value={"items": [
         {"clan": "#CTAG", "clan_name": "TestClan", "type": "join", "time": "2026-11-01T10:00:00"}]})
@@ -192,17 +213,17 @@ async def main():
 
     # ── capital ──────────────────────────────────────────────────────────────
     import cogs.capital as K
-    K.get_player_stats = AsyncMock(return_value=STATS)
-    res = await K._fetch_member_capital_stats("#M1", SEASON)
-    assert res == {"donated": 1000, "raided": 500}
-    K.get_player_stats = AsyncMock(return_value={"error": "x"}); K.get_player = AsyncMock(return_value=PLAYER)
-    res = await K._fetch_member_capital_stats("#M1", SEASON)
+    K.get_player = AsyncMock(return_value=PLAYER)
+    res = await K._fetch_member_capital_stats("#M1", None)
     assert res["all_time"] and res["donated"] == 9000
+    K.get_player = AsyncMock(return_value={"error": "x"})
+    res = await K._fetch_member_capital_stats("#M1", None)
+    assert res["error"] and res["donated"] == 0
     from core.builders import _build_cap_page
     stats = [{"name": f"M{i}", "tag": f"#M{i}", "donated": 100 * (25 - i), "raided": 5} for i in range(25)]
     t1, m1 = _build_cap_page(stats, "TestClan", "Season", 25, 0, "#CTAG")
     assert m1 and "Next" in m1.rows[0][0].label
-    ok("/cap_stats (season stats, all-time fallback, pagination)")
+    ok("/cap_stats (official all-time stats and pagination)")
 
     # ── loot ────────────────────────────────────────────────────────────────
     import cogs.loot as L

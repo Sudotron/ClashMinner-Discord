@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
-from coc_api import get_player, get_player_stats, get_player_warhits, get_player_join_leave
+from coc_api import get_player, get_player_warhits, get_player_join_leave
 from core.builders import (
     _build_player_page1, _build_player_page2, _build_player_page3, _build_todo_page,
 )
@@ -33,10 +33,11 @@ class PlayerCog(commands.Cog):
         cached = self.cache.get(key)
         if cached:
             return cached
-        data, stats, warhits = await asyncio.gather(
-            get_player(tag), get_player_stats(tag), get_player_warhits(tag))
+        data, warhits = await asyncio.gather(
+            get_player(tag, self.bot.coc), get_player_warhits(tag))
         if "error" in data:
             raise ApiError(data["error"])
+        stats = {}
         self.cache.set(key, (data, stats, warhits))
         return data, stats, warhits
 
@@ -98,7 +99,7 @@ class PlayerCog(commands.Cog):
         key = f"todo:{tag}"
         cached = self.cache.get(key)
         if not cached:
-            data = await get_player(tag)
+            data = await get_player(tag, self.bot.coc)
             if "error" in data:
                 return Page(f"❌ {data['error']}")
             th_max = await get_th_max(self.bot.coc, tag, data.get("townHallLevel", 1))
@@ -129,7 +130,7 @@ class PlayerCog(commands.Cog):
             await interaction.followup.send("Please provide a player tag, or link an account first with `/link`.")
             return
         t = normalize_tag(t)
-        data = await get_player(t)
+        data = await get_player(t, self.bot.coc)
         if "error" in data:
             await send_page(interaction, Page(f"❌ {data['error']}"))
             return

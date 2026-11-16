@@ -25,26 +25,22 @@ def _build_player_page1(data: dict, stats: dict, warhits: dict, tag: str) -> str
     role = data.get('role', 'none').capitalize() if data.get('role') else 'None'
     league = data.get('league', {}).get('name', 'Unranked') if data.get('league') else 'Unranked'
 
-    # ── Season values from /v1/players ──
+    # ── Current season values from the official player profile ──
     atk_wins = data.get('attackWins', 0)
     def_wins = data.get('defenseWins', 0)
     donated = data.get('donations', 0)
     received = data.get('donationsReceived', 0)
     don_ratio = round(donated / received, 1) if received > 0 else float(donated)
 
-    # ── Season values from /player/{tag}/stats ──
+    # ── Optional ClashKing seasonal stats (not currently provided) ──
     season = current_season()
-    stats_donations = stats.get('donations', {})
-    stats_attacks = stats.get('attack_wins', {})
     stats_capital = stats.get('capital', {})
     stats_clan_games = stats.get('clan_games', {})
-    stats_season_pass = stats.get('season_pass', {})
 
-    # CG Donated / Raided from stats (current season)
+    # Current-season Clan Capital and Clan Games totals are not in the official profile.
+    event_stats_available = bool(stats_capital or stats_clan_games)
     cg_donated = stats_capital.get(season, {}).get('donated', 0) if stats_capital else 0
     cg_raided = stats_capital.get(season, {}).get('raided', 0) if stats_capital else 0
-
-    # Clan Games this season
     cg_points = stats_clan_games.get(season, 0) if stats_clan_games else 0
     if isinstance(cg_points, dict):
         cg_points = cg_points.get('points', 0)
@@ -98,11 +94,16 @@ def _build_player_page1(data: dict, stats: dict, warhits: dict, tag: str) -> str
         f"{E['donup']} Donated: {fmt_number(donated)}\n"
         f"{E['dondown']} Received: {fmt_number(received)}\n"
         f"{E['ratio']} Donation Ratio: {don_ratio}\n"
-        f"\n🎉 **Event Stats:**\n"
-        f"{E['gold']} CG Donated: {fmt_number(cg_donated)}\n"
-        f"{E['raid']} CG Raided: {fmt_number(cg_raided)}\n"
-        f"{E['games']} Clan Games: {fmt_number(cg_points)}\n"
     )
+    if event_stats_available:
+        text += (
+            f"\n🎉 **Event Stats:**\n"
+            f"{E['gold']} CG Donated: {fmt_number(cg_donated)}\n"
+            f"{E['raid']} CG Raided: {fmt_number(cg_raided)}\n"
+            f"{E['games']} Clan Games: {fmt_number(cg_points)}\n"
+        )
+    else:
+        text += "\n🎉 **Event Stats:** Not available from the current APIs.\n"
     text += super_text
     text += (
         f"\n{'─' * 30}\n"

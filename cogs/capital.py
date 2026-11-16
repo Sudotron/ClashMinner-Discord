@@ -6,22 +6,18 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from coc_api import get_clan, get_player, get_player_stats
+from coc_api import get_clan, get_player
 from core.builders import _build_cap_page
-from core.helpers import current_season, normalize_tag, resolve_tag
+from core.helpers import normalize_tag, resolve_tag
 from core.nav import Page, TTLCache, send_page
 
 
-async def _fetch_member_capital_stats(tag: str, season: str) -> dict:
-    """Capital stats for one member: this season via ClashK stats, else all-time from achievements."""
-    stats = await get_player_stats(tag)
-    if isinstance(stats, dict) and "error" not in stats:
-        season_data = (stats.get("capital") or {}).get(season, {})
-        return {"donated": season_data.get("donated", 0), "raided": season_data.get("raided", 0)}
-    player = await get_player(tag)
+async def _fetch_member_capital_stats(tag: str, coc_client) -> dict:
+    """Return all-time Capital contributions from the official player profile."""
+    player = await get_player(tag, coc_client)
     if isinstance(player, dict) and "error" not in player:
         ach = {a["name"]: a["value"] for a in player.get("achievements", [])}
-        return {"donated": ach.get("Most Valuable Clanmate", 0),
+        return {"donated": player.get("clanCapitalContributions", ach.get("Most Valuable Clanmate", 0)),
                 "raided": ach.get("Aggressive Capitalism", 0), "all_time": True}
     return {"donated": 0, "raided": 0, "error": True}
 
@@ -49,11 +45,11 @@ class CapitalCog(commands.Cog):
             await interaction.followup.send("Please provide a clan tag, or link an account first with `/link`.")
             return
         t = normalize_tag(t)
-        clan_data = await get_clan(t)
+        clan_data = await get_clan(t, self.bot.coc)
         if "error" in clan_data:
-            pdata = await get_player(t)
+            pdata = await get_player(t, self.bot.coc)
             if "error" not in pdata and pdata.get("clan"):
-                clan_data = await get_clan(pdata["clan"]["tag"])
+                clan_data = await get_clan(pdata["clan"]["tag"], self.bot.coc)
             if "error" in clan_data:
                 await send_page(interaction, Page(f"❌ Could not find clan: {clan_data.get('error', 'Unknown error')}"))
                 return
@@ -62,19 +58,20 @@ class CapitalCog(commands.Cog):
             await send_page(interaction, Page("❌ No members found in the clan."))
             return
 
-        clan_name, clan_tag, season = clan_data.get("name", "Unknown"), clan_data.get("tag", t), current_season()
+        clan_name, clan_tag = clan_data.get("name", "Unknown"), clan_data.get("tag", t)
         tags = [m.get("tag", "") for m in members]
         results = {}
         for i in range(0, len(tags), 10):  # batches of 10 to stay polite to the API
             batch = tags[i:i + 10]
-            for tg, r in zip(batch, await asyncio.gather(*[_fetch_member_capital_stats(x, season) for x in batch])):
+            for tg, r in zip(batch, await asyncio.gather(
+                    *[_fetch_member_capital_stats(x, self.bot.coc) for x in batch])):
                 results[tg] = r
         stats = [{"name": m.get("name", "Unknown"), "tag": m.get("tag", ""),
                   "donated": results.get(m.get("tag", ""), {}).get("donated", 0),
                   "raided": results.get(m.get("tag", ""), {}).get("raided", 0),
                   "all_time": results.get(m.get("tag", ""), {}).get("all_time", False)} for m in members]
         stats.sort(key=lambda x: x["donated"], reverse=True)
-        label = "All-Time" if any(m["all_time"] for m in stats) else f"Season {season}"
+        label = "All-Time"
         norm = clan_tag.replace("#", "")
         self.cache.set(f"cap:{norm}", {"stats": stats, "clan_name": clan_name, "data_label": label,
                                        "total": len(members), "clan_tag": clan_tag})
