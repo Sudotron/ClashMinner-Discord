@@ -8,15 +8,18 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from coc_api import get_clan, get_player, get_clan_war, get_previous_wars
+from coc_api import get_clan, get_clan_war, get_players_batch, get_previous_wars
 from core.builders import (
     _build_clan_page1, _build_members_page, _clansorted_markup, _cwar_analytics_markup,
     _cwl_overview_text, _cwl_round_markup, _fmt_remaining, _parse_coc_time, _th_roster,
 )
 from core.helpers import ApiError, E, clan_url, normalize_tag, resolve_tag
+from core.autocomplete import linked_tag_choices
+from core.clan_arg import resolve_clan
+from core.war_pref import format_war_preference, group_war_preference
 from core.nav import Btn, Markup, Page, TTLCache, send_page
 
-NO_TAG = "Please provide a clan tag, or link an account first with `/link`."
+NO_TAG = "Please provide a clan tag, or link a clan with `/link`."
 
 
 def _ts(dt, style: str = "t") -> str:
@@ -40,12 +43,6 @@ class ClanCog(commands.Cog):
         if cached:
             return cached
         data = await get_clan(tag, self.bot.coc)
-        if "error" in data:  # maybe a player tag: use that player's clan
-            pdata = await get_player(tag, self.bot.coc)
-            if "error" in pdata and not pdata["error"].startswith("Player not found"):
-                raise ApiError(pdata["error"])
-            if "error" not in pdata and pdata.get("clan"):
-                data = await get_clan(pdata["clan"]["tag"], self.bot.coc)
         if "error" in data:
             if not data["error"].startswith("Clan not found"):
                 raise ApiError(data["error"])
@@ -76,7 +73,7 @@ class ClanCog(commands.Cog):
         return Page(text, markup, thumb_url=badge)
 
     @app_commands.command(name="clan", description="Clan profile with a paginated member roster")
-    @app_commands.describe(tag="Clan tag (optional if you linked an account)")
+    @app_commands.describe(tag="Clan tag (optional if you linked a clan)")
     async def clan(self, interaction: discord.Interaction, tag: Optional[str] = None):
         await interaction.response.defer(thinking=True)
         t = await resolve_tag(interaction.user.id, tag, "clan")
@@ -90,6 +87,10 @@ class ClanCog(commands.Cog):
             return
         page = await self.route_clan(f"clan_p1:{data.get('tag', t).strip().upper()}")
         await send_page(interaction, page, self.route_clan)
+
+    @clan.autocomplete("tag")
+    async def _clan_tag_ac(self, interaction: discord.Interaction, current: str):
+        return await linked_tag_choices(interaction, current, "clan")
 
     # ═════════════════════════ /clansorted ═══════════════════════════════════
     async def route_sorted(self, cb: str) -> Page:
@@ -124,7 +125,7 @@ class ClanCog(commands.Cog):
         return Page(text, _clansorted_markup(tag), thumb_url=(data.get("badgeUrls") or {}).get("large"))
 
     @app_commands.command(name="clansorted", description="Clan roster sorted by trophies, TH, donations, role or XP")
-    @app_commands.describe(tag="Clan tag (optional if you linked an account)", sort="What to sort by")
+    @app_commands.describe(tag="Clan tag (optional if you linked a clan)", sort="What to sort by")
     @app_commands.choices(sort=[
         app_commands.Choice(name="Trophies", value="trophies"),
         app_commands.Choice(name="Town Hall", value="th"),
@@ -141,6 +142,10 @@ class ClanCog(commands.Cog):
             return
         page = await self.route_sorted(f"clansort:{sort.value if sort else 'trophies'}:{normalize_tag(t)}")
         await send_page(interaction, page, self.route_sorted)
+
+    @clansorted.autocomplete("tag")
+    async def _clansorted_tag_ac(self, interaction: discord.Interaction, current: str):
+        return await linked_tag_choices(interaction, current, "clan")
 
     # ═════════════════════════ /clanwar ══════════════════════════════════════
     @staticmethod
@@ -159,11 +164,6 @@ class ClanCog(commands.Cog):
         war_data = await get_clan_war(tag, self.bot.coc)
         if "error" in war_data:
             clan_data = await get_clan(tag, self.bot.coc)
-            if "error" in clan_data:
-                pdata = await get_player(tag, self.bot.coc)
-                if "error" not in pdata and pdata.get("clan"):
-                    clan_data = await get_clan(pdata["clan"]["tag"], self.bot.coc)
-                    war_data = await get_clan_war(pdata["clan"]["tag"], self.bot.coc)
             if "error" not in clan_data and not clan_data.get("isWarLogPublic", False):
                 ctag = clan_data.get("tag", tag)
                 text = (f"🛡️ **{clan_data.get('name', 'Clan')}** `{ctag}`\n\n"
@@ -293,7 +293,7 @@ class ClanCog(commands.Cog):
         return Page(text, _cwar_analytics_markup(view, norm_tag, war_index, safe, total))
 
     @app_commands.command(name="clanwar", description="Current clan war info and analytics")
-    @app_commands.describe(tag="Clan tag (optional if you linked an account)")
+    @app_commands.describe(tag="Clan tag (optional if you linked a clan)")
     async def clanwar(self, interaction: discord.Interaction, tag: Optional[str] = None):
         await interaction.response.defer(thinking=True)
         t = await resolve_tag(interaction.user.id, tag, "clan")
@@ -301,6 +301,10 @@ class ClanCog(commands.Cog):
             await interaction.followup.send(NO_TAG)
             return
         await send_page(interaction, await self._clanwar_page(normalize_tag(t)), self.route_war)
+
+    @clanwar.autocomplete("tag")
+    async def _clanwar_tag_ac(self, interaction: discord.Interaction, current: str):
+        return await linked_tag_choices(interaction, current, "clan")
 
     # ═════════════════════════ /cwl ══════════════════════════════════════════
     async def _group(self, tag: str):
@@ -430,7 +434,7 @@ class ClanCog(commands.Cog):
         return Page(text, nav())
 
     @app_commands.command(name="cwl", description="Clan War League dashboard: rounds, roster, missed hits, leaderboard")
-    @app_commands.describe(tag="Clan tag (optional if you linked an account)")
+    @app_commands.describe(tag="Clan tag (optional if you linked a clan)")
     async def cwl(self, interaction: discord.Interaction, tag: Optional[str] = None):
         await interaction.response.defer(thinking=True)
         t = await resolve_tag(interaction.user.id, tag, "clan")
@@ -441,17 +445,6 @@ class ClanCog(commands.Cog):
             await interaction.followup.send("❌ Bot is not connected to the Clash of Clans API.")
             return
         t = normalize_tag(t)
-        try:  # a player tag resolves to that player's clan
-            player = await self.bot.coc.get_player(t)
-            if player.clan:
-                t = player.clan.tag
-        except coc.NotFound:
-            pass
-        except coc.Maintenance:
-            await interaction.followup.send("❌ Clash of Clans API is currently under maintenance.")
-            return
-        except Exception:
-            pass
         try:
             group = await self._group(t)
         except coc.NotFound:
@@ -474,6 +467,29 @@ class ClanCog(commands.Cog):
                 latest = i
         page = await self.route_cwl(f"cwl_r:round:{t.upper()}:{latest}")
         await send_page(interaction, page, self.route_cwl)
+
+    @cwl.autocomplete("tag")
+    async def _cwl_tag_ac(self, interaction: discord.Interaction, current: str):
+        return await linked_tag_choices(interaction, current, "clan")
+
+    # ═══ /waropt ═════════════════════════════════════════════════════════════
+    @app_commands.command(name="waropt", description="Clan members grouped by war preference (opted in / out)")
+    @app_commands.describe(clan="Clan tag (optional if you linked a clan)")
+    async def waropt(self, interaction: discord.Interaction, clan: Optional[str] = None):
+        await interaction.response.defer(thinking=True)
+        tag = await resolve_clan(self.bot, interaction, clan)
+        data = await get_clan(tag, self.bot.coc)
+        if "error" in data:
+            raise ApiError(data["error"])
+        members = data.get("memberList", [])
+        # warPreference is only on the player payload, so this is one lookup per member (batched + cached).
+        players = await get_players_batch([m["tag"] for m in members], self.bot.coc)
+        text = format_war_preference(data.get("name", tag), tag, group_war_preference(members, players))
+        await send_page(interaction, Page(text))
+
+    @waropt.autocomplete("clan")
+    async def _waropt_clan_ac(self, interaction: discord.Interaction, current: str):
+        return await linked_tag_choices(interaction, current, "clan")
 
 
 async def setup(bot):

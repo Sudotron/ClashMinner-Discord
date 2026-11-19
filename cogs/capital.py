@@ -6,9 +6,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from coc_api import get_clan, get_player
+from coc_api import get_clan
 from core.builders import _build_cap_page
 from core.helpers import normalize_tag, resolve_tag
+from core.autocomplete import linked_tag_choices
 from core.nav import Page, TTLCache, send_page
 
 
@@ -37,22 +38,18 @@ class CapitalCog(commands.Cog):
         return Page(text, markup)
 
     @app_commands.command(name="cap_stats", description="Clan Capital Gold contribution leaderboard")
-    @app_commands.describe(tag="Clan tag (optional if you linked an account)")
+    @app_commands.describe(tag="Clan tag (optional if you linked a clan)")
     async def cap_stats(self, interaction: discord.Interaction, tag: Optional[str] = None):
         await interaction.response.defer(thinking=True)  # this one makes many API calls
         t = await resolve_tag(interaction.user.id, tag, "clan")
         if not t:
-            await interaction.followup.send("Please provide a clan tag, or link an account first with `/link`.")
+            await interaction.followup.send("Please provide a clan tag, or link a clan with `/link`.")
             return
         t = normalize_tag(t)
         clan_data = await get_clan(t, self.bot.coc)
         if "error" in clan_data:
-            pdata = await get_player(t, self.bot.coc)
-            if "error" not in pdata and pdata.get("clan"):
-                clan_data = await get_clan(pdata["clan"]["tag"], self.bot.coc)
-            if "error" in clan_data:
-                await send_page(interaction, Page(f"❌ Could not find clan: {clan_data.get('error', 'Unknown error')}"))
-                return
+            await send_page(interaction, Page(f"❌ Could not find clan: {clan_data.get('error', 'Unknown error')}"))
+            return
         members = clan_data.get("memberList", [])
         if not members:
             await send_page(interaction, Page("❌ No members found in the clan."))
@@ -77,6 +74,10 @@ class CapitalCog(commands.Cog):
                                        "total": len(members), "clan_tag": clan_tag})
         text, markup = _build_cap_page(stats, clan_name, label, len(members), 0, clan_tag)
         await send_page(interaction, Page(text, markup), self.route)
+
+    @cap_stats.autocomplete("tag")
+    async def _cap_stats_tag_ac(self, interaction: discord.Interaction, current: str):
+        return await linked_tag_choices(interaction, current, "clan")
 
 
 async def setup(bot):

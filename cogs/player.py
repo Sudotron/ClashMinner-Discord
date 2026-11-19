@@ -15,6 +15,7 @@ from core.builders import (
 from core.helpers import (
     E, ApiError, fmt_number, get_scraped_th_max, get_th_max, normalize_tag, resolve_tag,
 )
+from core.autocomplete import linked_tag_choices
 from core.nav import Btn, Markup, Page, TTLCache, send_page
 
 
@@ -93,6 +94,10 @@ class PlayerCog(commands.Cog):
         page = await self.route_player(f"player_p1:{normalize_tag(t)}")
         await send_page(interaction, page, self.route_player)
 
+    @player.autocomplete("tag")
+    async def _player_tag_ac(self, interaction: discord.Interaction, current: str):
+        return await linked_tag_choices(interaction, current, "player")
+
     # ── /todo ────────────────────────────────────────────────────────────────
     async def route_todo(self, cb: str) -> Page:
         _, category, tag = cb.split(":", 2)
@@ -120,6 +125,10 @@ class PlayerCog(commands.Cog):
         page = await self.route_todo(f"todo_p:heroes:{normalize_tag(t)}")
         await send_page(interaction, page, self.route_todo)
 
+    @todo.autocomplete("tag")
+    async def _todo_tag_ac(self, interaction: discord.Interaction, current: str):
+        return await linked_tag_choices(interaction, current, "player")
+
     # ── /audit ───────────────────────────────────────────────────────────────
     @app_commands.command(name="audit", description="Rush audit: heroes, troops and spells vs your Town Hall max")
     @app_commands.describe(tag="Player tag (optional if you linked an account)")
@@ -138,6 +147,10 @@ class PlayerCog(commands.Cog):
         norm_tag = data.get("tag", t).strip().upper()
         th_max = await get_th_max(self.bot.coc, norm_tag, th)
         await send_page(interaction, Page(self._audit_text(data, th, norm_tag, th_max)))
+
+    @audit.autocomplete("tag")
+    async def _audit_tag_ac(self, interaction: discord.Interaction, current: str):
+        return await linked_tag_choices(interaction, current, "player")
 
     @staticmethod
     def _audit_text(data: dict, th: int, norm_tag: str, th_max: dict) -> str:

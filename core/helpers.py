@@ -1,4 +1,6 @@
 """Shared helpers: emoji table, formatting, tag handling, max-level lookups."""
+import asyncio
+import functools
 import json
 import os
 from datetime import datetime, timezone
@@ -40,6 +42,12 @@ E = {
     "fire":         "🔥",
     "cwl":          "🌟",
 }
+
+async def run_blocking(fn, *args, **kwargs):
+    """Run CPU-heavy or blocking work (Pillow, big JSON) off the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, functools.partial(fn, *args, **kwargs))
+
 
 def fmt_number(n) -> str:
     """Format number with commas."""
@@ -102,17 +110,10 @@ def get_scraped_th_max(unit_name: str, th: int) -> int:
 
 
 async def resolve_tag(discord_id: int, tag_arg, entity_type: str = "player"):
-    """Tag from the command option, else from the user's linked accounts.
-
-    If a clan was wanted but only a player is linked, return the player tag so the
-    caller can look up that player's clan (and vice versa) — same as the Telegram bot.
-    """
+    """Tag from the command option, else from the user's linked account of that type."""
     if tag_arg and tag_arg.strip():
         return normalize_tag(tag_arg)
-    tag = await get_linked_account(discord_id, entity_type)
-    if not tag:
-        tag = await get_linked_account(discord_id, "clan" if entity_type == "player" else "player")
-    return tag
+    return await get_linked_account(discord_id, entity_type)
 
 
 async def get_th_max(coc_client, tag: str, th_level) -> dict:

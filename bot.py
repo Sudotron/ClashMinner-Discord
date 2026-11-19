@@ -11,10 +11,20 @@ from discord.ext import commands
 
 import config
 from core import state
-from database import init_db
+from core.helpers import ApiError
+from core.nav import NavError
+from database import ConfigError, LinkError, init_db
 
-COGS = ["general", "player", "clan", "capital", "loot", "tracking", "maintenance", "scraper"]
+USER_ERRORS = (NavError, ApiError, ConfigError, LinkError)   # raised on purpose with a user-safe message
+COGS = ["general", "player", "clan", "capital", "loot", "tracking", "maintenance", "scraper",
+        "cards", "reminders", "activity", "army"]
 log = logging.getLogger("otto")
+
+
+def _intents() -> discord.Intents:
+    intents = discord.Intents.default()
+    intents.message_content = config.ENABLE_MESSAGE_CONTENT   # only for the optional army/base link reader
+    return intents
 
 
 class OttoTree(app_commands.CommandTree):
@@ -30,8 +40,12 @@ class OttoTree(app_commands.CommandTree):
         return True
 
     async def on_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        log.exception("Command error in /%s", getattr(interaction.command, "name", "?"), exc_info=error)
-        msg = "❌ Something went wrong. Please try again in a moment."
+        original = getattr(error, "original", error)
+        if isinstance(original, USER_ERRORS):          # expected problems: show the message, no traceback
+            msg = f"❌ {original}"
+        else:
+            log.exception("Command error in /%s", getattr(interaction.command, "name", "?"), exc_info=error)
+            msg = "❌ Something went wrong. Please try again in a moment."
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(msg, ephemeral=True)
@@ -44,7 +58,7 @@ class OttoTree(app_commands.CommandTree):
 class OttoBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix=commands.when_mentioned,
-                         intents=discord.Intents.default(),   # slash commands need no privileged intents
+                         intents=_intents(),   # slash commands need no privileged intents
                          tree_cls=OttoTree,
                          activity=discord.Game("Clash of Clans"))
         self.coc = None  # coc.py client (official API); None if login failed / not configured
